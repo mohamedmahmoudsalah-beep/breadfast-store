@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+/* Breadfast brand tokens — base colour #AA0082 is sampled from the official logo. */
+@theme {
+  --color-brand-50: #fcf0f9;
+  --color-brand-100: #f9dff3;
+  --color-brand-200: #f2bde4;
+  --color-brand-300: #e58dcd;
+  --color-brand-400: #cf47ac;
+  --color-brand-500: #aa0082;
+  --color-brand-600: #8e006b;
+  --color-brand-700: #730056;
+  --color-brand-800: #570041;
+  --color-brand-900: #3d002d;
+
+  --color-ink: #1f1a1e;
+  --color-muted: #6b6168;
+  --color-line: #e8e0e5;
+  --color-surface: #faf7f9;
+
+  --color-success: #0f7b4f;
+  --color-warning: #a15c00;
+  --color-danger: #b42318;
+
+  --font-sans: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+}
+
+html {
+  background: #ffffff;
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-brand-300);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

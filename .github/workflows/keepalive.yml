@@ -1,0 +1,14 @@
+# Free Supabase projects pause after a week without activity. A light ping every 3 days prevents that.
+name: Keep Supabase awake
+on:
+  schedule:
+    - cron: "0 9 */3 * *"
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          URL: ${{ secrets.SUPABASE_URL }}
+          KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: curl -fsS "$URL/rest/v1/categories?select=id&limit=1" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -o /dev/null -w "HTTP %{http_code}\n"

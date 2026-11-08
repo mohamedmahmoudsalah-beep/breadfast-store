@@ -1,0 +1,18 @@
+# Safety net: pushes pending card refunds to Paymob every ~10 minutes (GitHub may delay scheduled runs a few minutes).
+# Secrets: SUPABASE_URL, SUPABASE_ANON_KEY, CRON_SECRET (same value as the Edge Function secret).
+name: Process card refunds
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+jobs:
+  refunds:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          URL: ${{ secrets.SUPABASE_URL }}
+          KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS -X POST "$URL/functions/v1/process-refunds" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+            -H "x-cron-secret: $CRON" -H "Content-Type: application/json" -d '{}' -w "\nHTTP %{http_code}\n"

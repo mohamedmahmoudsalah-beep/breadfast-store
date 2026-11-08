@@ -1,0 +1,7 @@
+# Minimal Supabase CLI config. The project is linked with: supabase link --project-ref YOUR_PROJECT_REF
+project_id = "breadfast-store"
+
+# Paymob calls this function from the internet, so it cannot require a Supabase login token.
+# It is protected by the HMAC signature check instead.
+[functions.paymob-webhook]
+verify_jwt = false

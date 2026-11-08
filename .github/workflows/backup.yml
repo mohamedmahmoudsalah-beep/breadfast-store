@@ -1,0 +1,30 @@
+# Daily logical backup of the Supabase database (the Free plan has no automatic backups).
+# REQUIRES: a PRIVATE repository (the artifact contains employee data) and the secret SUPABASE_DB_URL
+# (Supabase > Connect > "Session pooler" connection string, with your database password filled in).
+name: Database backup
+on:
+  schedule:
+    - cron: "30 22 * * *"       # 22:30 UTC = 00:30 Cairo
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc >/dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-17
+      - name: Dump
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          test -n "$DB_URL" || { echo "SUPABASE_DB_URL secret is missing"; exit 1; }
+          pg_dump "$DB_URL" --no-owner --no-privileges --schema=public --format=custom --file=backup.dump
+          ls -la backup.dump
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: backup.dump
+          retention-days: 30
