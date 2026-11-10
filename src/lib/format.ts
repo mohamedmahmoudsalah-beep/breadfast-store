@@ -19,7 +19,7 @@ export function parseEgpToPiastres(v: string): number | null {
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
 }
 
-export const orderNo = (n: number | string) => `BF-${n}`;
+export const orderNo = (n: number | string | null | undefined) => (n ? `BF-${n}` : "بانتظار الدفع");
 
 export const ORDER_STATUS_LABEL: Record<string, string> = {
   pending_payment: "في انتظار الدفع",

@@ -8,6 +8,21 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/misc";
 import { getSupabase } from "@/lib/supabase/client";
 
+/** Turns the real Supabase error into a clear Arabic explanation (so setup problems are visible, not hidden). */
+function explainSignupError(err: { message: string; code?: string; status?: number }): string {
+  const code = err.code ?? "";
+  const msg = err.message ?? "";
+  if (code === "user_already_exists" || /already registered|already exists/i.test(msg)) return "البريد ده مسجل قبل كده. جرب تسجيل الدخول.";
+  if (code === "over_email_send_rate_limit" || /rate limit/i.test(msg)) return "تخطيت الحد المسموح لإرسال الإيميلات. استنى ساعة وجرب تاني، أو فعّل SMTP مخصص في Supabase (الجزء 4-ج).";
+  if (code === "email_address_not_authorized" || /not authorized/i.test(msg)) return "خدمة الإيميل الافتراضية في Supabase بتبعت لأعضاء المشروع بس. فعّل SMTP مخصص (Authentication > Emails > SMTP Settings).";
+  if (/sending (confirmation|email)|error sending/i.test(msg)) return "فشل إرسال رسالة التأكيد. راجع إعدادات الإيميل (SMTP) في Supabase.";
+  if (/database error/i.test(msg)) return "خطأ في قاعدة البيانات أثناء إنشاء الحساب. تأكد إنك شغلت ملفات supabase/migrations كلها بالترتيب (من 0001 لـ 0008).";
+  if (code === "signup_disabled" || /signups? not allowed|disabled/i.test(msg)) return "التسجيل مقفول في Supabase. فعّله من Authentication > Sign In / Providers.";
+  if (code === "email_address_invalid" || /invalid.*email|email.*invalid/i.test(msg)) return "البريد الإلكتروني غير مقبول. جرب بريد تاني.";
+  if (code === "weak_password" || /password/i.test(msg)) return `كلمة المرور غير مقبولة: ${msg}`;
+  return `تعذر إنشاء الحساب: ${msg}${code ? ` (${code})` : ""}`;
+}
+
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +41,7 @@ export default function RegisterPage() {
       email: email.trim(), password, options: { emailRedirectTo: `${window.location.origin}/login/` },
     });
     setBusy(false);
-    if (err) { setError(/registered|exists/i.test(err.message) ? "البريد ده مسجل قبل كده. جرب تسجيل الدخول." : "تعذر إنشاء الحساب. تأكد من البيانات وحاول تاني."); return; }
+    if (err) { setError(explainSignupError(err)); return; }
     setDone(true);
   }
 

@@ -1,4 +1,5 @@
 # Free Supabase projects pause after a week without activity. A light ping every 3 days prevents that.
+# Skips quietly until SUPABASE_URL and SUPABASE_ANON_KEY are added as repository secrets.
 name: Keep Supabase awake
 on:
   schedule:
@@ -11,4 +12,6 @@ jobs:
       - env:
           URL: ${{ secrets.SUPABASE_URL }}
           KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: curl -fsS "$URL/rest/v1/categories?select=id&limit=1" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -o /dev/null -w "HTTP %{http_code}\n"
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then echo "::notice::Keep-alive skipped: secrets are not configured."; exit 0; fi
+          curl -fsS "$URL/rest/v1/categories?select=id&limit=1" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -o /dev/null -w "HTTP %{http_code}\n"

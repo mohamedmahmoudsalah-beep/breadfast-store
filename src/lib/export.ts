@@ -59,3 +59,29 @@ export function downloadCsv(sheet: Sheet, fileName: string) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = fileName; a.click(); URL.revokeObjectURL(a.href);
 }
+
+type Cell = string | number | null | undefined;
+
+async function writeSheets(fileName: string, sheets: { name: string; header: string[]; rows: Cell[][]; widths?: number[]; notes?: string[] }[]) {
+  const { default: writeXlsxFile } = await import("write-excel-file/browser");
+  const data = sheets.map((sh) => {
+    const header = sh.header.map((h) => ({ value: h, fontWeight: "bold" as const, backgroundColor: "#F9DFF3", textColor: "#570041" }));
+    const body = sh.rows.map((r) => r.map((v) => (typeof v === "number" ? { value: v, type: Number } : { value: v === null || v === undefined ? "" : String(v), type: String })));
+    const notes = (sh.notes ?? []).map((n) => [{ value: n, type: String, textColor: "#6F655F" }]);
+    return { sheet: sh.name, data: [header, ...body, ...(notes.length ? [[], ...notes] : [])], columns: sh.header.map((_, i) => ({ width: sh.widths?.[i] ?? 24 })) };
+  });
+  await writeXlsxFile(data).toFile(fileName);
+}
+
+/** A ready-to-fill import template (headers + example rows + short instructions). */
+export function downloadTemplate(fileName: string, header: string[], examples: Cell[][], notes: string[] = []) {
+  return writeSheets(fileName, [{ name: "Template", header, rows: examples, notes }]);
+}
+
+/** Excel export of any on-screen table. */
+export function downloadTable(fileName: string, sheetName: string, columns: { header: string; value: (row: never) => Cell }[], rows: unknown[]) {
+  return writeSheets(fileName, [{
+    name: sheetName.slice(0, 30), header: columns.map((c) => c.header),
+    rows: rows.map((r) => columns.map((c) => (c.value as (row: unknown) => Cell)(r))),
+  }]);
+}

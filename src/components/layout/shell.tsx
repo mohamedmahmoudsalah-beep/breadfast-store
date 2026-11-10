@@ -36,7 +36,7 @@ export function AppShell({ children, guard = { employee: true } }: { children: R
     const supabase = getSupabase();
     const [n, w] = await Promise.all([
       supabase.from("notifications").select("id", { count: "exact", head: true }).is("read_at", null),
-      supabase.from("wallets").select("balance_piastres").maybeSingle(),
+      supabase.from("wallets").select("balance_piastres").eq("user_id", session.user.id).maybeSingle(),
     ]);
     return { unread: n.count ?? 0, balance: w.data ? Number(w.data.balance_piastres) : 0 };
   }, [session?.user.id, access?.hrid]);
@@ -62,7 +62,7 @@ export function AppShell({ children, guard = { employee: true } }: { children: R
 
   return (
     <div className="min-h-screen bg-surface">
-      <header className="sticky top-0 z-40 border-b border-line bg-white">
+      <header className="sticky top-0 z-40 border-b-[3px] border-double border-gold bg-white">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <Link href="/" className="flex shrink-0 items-center gap-2"><Logo size={36} /><span className="hidden font-bold sm:inline">متجر بريدفاست</span></Link>
           <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto" aria-label="القائمة الرئيسية">
@@ -94,16 +94,16 @@ export function AppShell({ children, guard = { employee: true } }: { children: R
 function AdminTabs() {
   const path = usePathname();
   const { can } = useAuth();
-  const tabs: [string, string, string | null][] = [
-    ["/admin/", "لوحة التحكم", "dashboard.view"], ["/admin/orders/", "الطلبات", "orders.view"], ["/admin/products/", "المنتجات", "products.manage"],
-    ["/admin/import/", "استيراد المخزون", "stock.import"], ["/admin/stock/", "حركة المخزون", "stock.import"], ["/admin/categories/", "الأقسام والحدود", "categories.manage"],
-    ["/admin/schedule/", "المواعيد", "schedule.manage"], ["/admin/users/", "المستخدمون", "users.manage"], ["/admin/finance/", "المدفوعات والاستردادات", "payments.view"],
-    ["/admin/reports/", "التقارير", "reports.export"], ["/admin/settings/", "الإعدادات", "settings.manage"], ["/admin/audit/", "سجل المراجعة", "audit.view"],
+  const tabs: [string, string, string[] | null][] = [
+    ["/admin/", "لوحة التحكم", ["dashboard.view"]], ["/admin/orders/", "الطلبات", ["orders.view"]], ["/admin/products/", "المنتجات", ["products.manage"]],
+    ["/admin/import/", "رفع ملفات Excel", ["products.manage", "stock.import", "limits.manage"]], ["/admin/stock/", "حركة المخزون", ["stock.import"]], ["/admin/categories/", "الأقسام والحدود", ["categories.manage"]],
+    ["/admin/schedule/", "المواعيد", ["schedule.manage"]], ["/admin/users/", "المستخدمون", ["users.manage"]], ["/admin/finance/", "المدفوعات والاستردادات", ["payments.view"]],
+    ["/admin/reports/", "التقارير", ["reports.export"]], ["/admin/settings/", "الإعدادات", ["settings.manage"]], ["/admin/audit/", "سجل المراجعة", ["audit.view"]],
   ];
   return (
     <div className="border-t border-line bg-white">
       <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 py-2" aria-label="قائمة الإدارة">
-        {tabs.filter(([, , p]) => !p || can(p)).map(([href, label]) => (
+        {tabs.filter(([, , p]) => !p || p.some((x) => can(x))).map(([href, label]) => (
           <Link key={href} href={href} className={cn("whitespace-nowrap rounded-lg px-3 py-1.5 text-sm", path === href || (href !== "/admin/" && path.startsWith(href)) ? "bg-brand-500 text-white" : "text-muted hover:bg-surface")}>{label}</Link>
         ))}
       </nav>

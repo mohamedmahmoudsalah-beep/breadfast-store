@@ -1,9 +1,10 @@
-# Safety net: pushes pending card refunds to Paymob every ~10 minutes (GitHub may delay scheduled runs a few minutes).
-# Secrets: SUPABASE_URL, SUPABASE_ANON_KEY, CRON_SECRET (same value as the Edge Function secret).
+# BACKUP only: card refunds are already pushed to Paymob automatically by the database (migration 0009, pg_net).
+# This job just re-checks every 30 minutes. It does nothing (and does NOT fail) until its secrets exist:
+# SUPABASE_URL, SUPABASE_ANON_KEY, CRON_SECRET (same value as the Edge Function secret) and process-refunds deployed with --no-verify-jwt.
 name: Process card refunds
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 jobs:
   refunds:
@@ -14,5 +15,6 @@ jobs:
           KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CRON: ${{ secrets.CRON_SECRET }}
         run: |
+          if [ -z "$URL" ] || [ -z "$CRON" ]; then echo "::notice::Refund backup job skipped: secrets are not configured (optional)."; exit 0; fi
           curl -fsS -X POST "$URL/functions/v1/process-refunds" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
             -H "x-cron-secret: $CRON" -H "Content-Type: application/json" -d '{}' -w "\nHTTP %{http_code}\n"

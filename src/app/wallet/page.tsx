@@ -5,17 +5,20 @@ import { Card } from "@/components/ui/card";
 import { EmptyState, ErrorBox, Spinner } from "@/components/ui/misc";
 import { getSupabase } from "@/lib/supabase/client";
 import { useLoad } from "@/lib/hooks";
+import { useAuth } from "@/lib/auth";
 import { cairoDateTime, egp } from "@/lib/format";
 import { WALLET_REASON } from "@/lib/store";
 
 type Tx = { id: string; direction: "credit" | "debit"; amount_piastres: number; reason: string; created_at: string; balance_after: number };
 
 function Wallet() {
+  const { session } = useAuth();
+  const uid = session!.user.id;
   const { data, error, loading, reload } = useLoad(async () => {
     const supabase = getSupabase();
     const [w, t] = await Promise.all([
-      supabase.from("wallets").select("balance_piastres").maybeSingle(),
-      supabase.from("wallet_transactions").select("id,direction,amount_piastres,reason,created_at,balance_after").order("created_at", { ascending: false }).limit(200),
+      supabase.from("wallets").select("balance_piastres").eq("user_id", uid).maybeSingle(),
+      supabase.from("wallet_transactions").select("id,direction,amount_piastres,reason,created_at,balance_after").eq("user_id", uid).order("created_at", { ascending: false }).limit(200),
     ]);
     if (t.error) throw t.error;
     return { balance: w.data ? Number(w.data.balance_piastres) : 0, txs: (t.data ?? []) as Tx[] };

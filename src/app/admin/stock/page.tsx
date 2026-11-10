@@ -10,6 +10,8 @@ import { getSupabase } from "@/lib/supabase/client";
 import { rpc } from "@/lib/rpc";
 import { useDebounced, useLoad } from "@/lib/hooks";
 import { cairoDateTime } from "@/lib/format";
+import { ExcelButton } from "@/components/ui/file-drop";
+import { downloadTable } from "@/lib/export";
 import { errorMessage } from "@/lib/errors";
 
 type Mv = { id: number; movement_type: string; qty_delta: number; qty_before: number; qty_after: number; note: string | null; created_at: string; products: { name: string; barcode: string } | null };
@@ -46,6 +48,9 @@ function Stock() {
   return (
     <div className="grid gap-4">
       <Input className="max-w-sm" placeholder="ابحث بالاسم أو الباركود لعرض حركة منتج أو تصحيح مخزونه" value={search} onChange={(e) => setSearch(e.target.value)} />
+      {data && <div><ExcelButton onClick={() => downloadTable("stock-movements.xlsx", "Stock movements", [
+        { header: "Time", value: (m: Mv) => m.created_at }, { header: "Product", value: (m: Mv) => m.products?.name }, { header: "Barcode", value: (m: Mv) => m.products?.barcode },
+        { header: "Type", value: (m: Mv) => m.movement_type }, { header: "Change", value: (m: Mv) => m.qty_delta }, { header: "Before", value: (m: Mv) => m.qty_before }, { header: "After", value: (m: Mv) => m.qty_after }, { header: "Note", value: (m: Mv) => m.note }], data)}>تنزيل Excel</ExcelButton></div>}
       {found.length > 0 && (
         <div className="grid gap-2 rounded-2xl border border-line bg-white p-3">
           {found.map((p) => (

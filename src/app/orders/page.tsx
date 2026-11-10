@@ -14,18 +14,29 @@ type Row = { id: string; order_no: number; status: string; created_at: string; t
 
 function List() {
   const { session } = useAuth();
+  const uid = session!.user.id;
   const { data, error, loading, reload } = useLoad(async () => {
-    const { data: rows, error: err } = await getSupabase().from("orders")
-      .select("id,order_no,status,created_at,total_piastres,final_total_piastres,slot_label,extra_due_piastres").order("created_at", { ascending: false }).limit(100);
-    if (err) throw err; return rows as Row[];
+    const supabase = getSupabase();
+    // ONLY my own orders, and only orders that were actually paid (an unpaid checkout is not an order yet)
+    const [paid, pending] = await Promise.all([
+      supabase.from("orders").select("id,order_no,status,created_at,total_piastres,final_total_piastres,slot_label,extra_due_piastres")
+        .eq("user_id", uid).not("paid_at", "is", null).order("created_at", { ascending: false }).limit(100),
+      supabase.from("orders").select("id,total_piastres,payment_expires_at").eq("user_id", uid).eq("status", "pending_payment").maybeSingle(),
+    ]);
+    if (paid.error) throw paid.error;
+    return { rows: paid.data as Row[], pending: pending.data as { id: string; total_piastres: number } | null };
   });
   useRealtime("orders", session ? `user_id=eq.${session.user.id}` : undefined, () => void reload());
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
-  if (!data?.length) return <EmptyState title="لسه معندكش طلبات" action={<Link className="font-semibold text-brand-600 underline" href="/">ابدأ التسوق</Link>} />;
+  const banner = data?.pending ? (
+    <Link href={`/order/?id=${data.pending.id}`}><Card className="border-amber-300 bg-amber-50 text-warning"><p className="font-semibold">عندك عملية دفع لم تكتمل ({egp(data.pending.total_piastres)}). اضغط لإكمال الدفع أو الإلغاء. الطلب مش بيتسجّل غير بعد الدفع.</p></Card></Link>
+  ) : null;
+  if (!data?.rows.length) return <div className="grid gap-3">{banner}<EmptyState title="لسه معندكش طلبات" action={<Link className="font-semibold text-brand-600 underline" href="/">ابدأ التسوق</Link>} /></div>;
   return (
     <div className="grid gap-3">
-      {data.map((o) => (
+      {banner}
+      {data.rows.map((o) => (
         <Link key={o.id} href={`/order/?id=${o.id}`}>
           <Card className="flex flex-wrap items-center justify-between gap-3 hover:border-brand-300">
             <div>

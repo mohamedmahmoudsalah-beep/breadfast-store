@@ -15,6 +15,7 @@ import { egp } from "@/lib/format";
 import { errorCode, errorDetail, errorMessage } from "@/lib/errors";
 import { startCardPayment } from "@/lib/payments";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 
 type Slot = { slot_id: string; label: string; start_time: string; end_time: string; remaining: number; can_book: boolean };
 type OrderResult = { order_id: string; card_due_piastres: number; status: string };
@@ -22,6 +23,7 @@ type OrderResult = { order_id: string; card_due_piastres: number; status: string
 function Checkout() {
   const router = useRouter();
   const cart = useCart();
+  const { session } = useAuth();
   const { meta, loading } = useStoreMeta();
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<string>("");
@@ -34,10 +36,10 @@ function Checkout() {
   useEffect(() => {
     void (async () => {
       const supabase = getSupabase();
-      const [s, w] = await Promise.all([supabase.rpc("available_slots"), supabase.from("wallets").select("balance_piastres").maybeSingle()]);
+      const [s, w] = await Promise.all([supabase.rpc("available_slots"), supabase.from("wallets").select("balance_piastres").eq("user_id", session!.user.id).maybeSingle()]);
       setSlots((s.data ?? []) as Slot[]); setBalance(w.data ? Number(w.data.balance_piastres) : 0);
     })();
-  }, []);
+  }, [session]);
 
   if (loading || slots === null) return <Spinner />;
   if (cart.lines.length === 0) return <EmptyState title="السلة فاضية" action={<Link href="/"><Button>المتجر</Button></Link>} />;

@@ -47,12 +47,16 @@ const messages: Record<string, string> = {
   SLOT_BEFORE_BUSINESS_DAY_START: "بداية الموعد لازم تكون بعد بداية اليوم التجاري.",
   CANNOT_MODIFY_SELF: "لا يمكنك تعديل حسابك بنفسك.",
   PRODUCT_NOT_FOUND: "المنتج غير موجود.",
+  SYSTEM_CATEGORY: "ده قسم النظام (null) وحده الأقصى ثابت 2 قطعة ولا يمكن تعديله.",
+  PRICE_REQUIRED: "لازم تحدد سعر أكبر من صفر للمنتج الظاهر في المتجر.",
+  PRODUCT_NOT_FOUND_IN_CATALOG: "المنتج غير موجود في الكتالوج.",
   IMAGE_URL_INVALID: "رابط الصورة لازم يبدأ بـ http أو https.",
 };
 
 export function errorCode(err: unknown): string {
   const e = err as { message?: string } | null;
   const msg = e?.message ?? "";
+  if (/products_active_needs_price/.test(msg)) return "PRICE_REQUIRED";
   const m = msg.match(/^[A-Z][A-Z_]+/);
   return m ? m[0] : msg;
 }

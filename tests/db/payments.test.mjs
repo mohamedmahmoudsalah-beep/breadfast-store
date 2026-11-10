@@ -54,7 +54,7 @@ test("an employee can only start payment for their own order", async () => {
 
 test("wallet + card mixed payment: wallet part is refunded to the wallet, card part to the card", async () => {
   const h = await seed();
-  await h.rpc("admin", "admin_wallet_adjust", h.users.emp1, 2000, "credit");
+  await h.credit("emp1", 2000);
   const o = await placeOrder(h, "emp1", [{ product_id: h.chips, qty: 2 }]);          // total 6151
   assert.equal(o.wallet_applied_piastres, 2000); assert.equal(o.card_due_piastres, 4151);
   await payOrder(h, "emp1", o.order_id);
@@ -66,7 +66,7 @@ test("wallet + card mixed payment: wallet part is refunded to the wallet, card p
 
 test("fully wallet-paid order is confirmed instantly without a card", async () => {
   const h = await seed();
-  await h.rpc("admin", "admin_wallet_adjust", h.users.emp1, 100000, "credit");
+  await h.credit("emp1", 100000);
   const o = await placeOrder(h, "emp1", [{ product_id: h.cola, qty: 1 }]);
   assert.equal(o.card_due_piastres, 0);
   assert.equal((await h.order(o.order_id)).status, "assigned");

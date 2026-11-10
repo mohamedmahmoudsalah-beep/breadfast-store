@@ -13,16 +13,20 @@ export async function seed() {
   await h.rpc("admin", "hrid_import", [{ hrid: "h1", name: "Ahmed Ali" }, { hrid: "H2", name: "Sara Omar" }, { hrid: "H3", name: "Mona Said" }]);
   await h.rpc("emp1", "link_hrid", "H1"); await h.rpc("emp2", "link_hrid", " h2 "); await h.rpc("emp3", "link_hrid", "H3");
 
-  const b = await h.rpc("admin", "import_stage", "day1.xlsx", [
-    { barcode: "111", name: "Cola", category: "Soft Drinks", price: "10", qty: "100" },
-    { barcode: "222", name: "Chips", category: "Snacks", price: "25.50", qty: "20" },
-    { barcode: "333", name: "Water", category: "Soft Drinks", price: "5", qty: "10" }]);
-  await h.rpc("admin", "import_confirm", b.batch_id, false);
+  const cb = await h.rpc("admin", "import_stage", "catalog.xlsx", [
+    { barcode: "111", name: "Cola", category: "Soft Drinks", price: "10" },
+    { barcode: "222", name: "Chips", category: "Snacks", price: "25.50" },
+    { barcode: "333", name: "Water", category: "Soft Drinks", price: "5" }], "catalog");
+  await h.rpc("admin", "import_confirm", cb.batch_id, false);
+  const sb = await h.rpc("admin", "import_stage", "stock1.xlsx", [
+    { barcode: "111", name: "Cola", qty: "100" }, { barcode: "222", name: "Chips", qty: "20" }, { barcode: "333", name: "Water", qty: "10" }], "stock");
+  await h.rpc("admin", "import_confirm", sb.batch_id, false);
   const cat = (await h.asPostgres("select id from categories where name='Soft Drinks'")).rows[0].id;
   await h.rpc("admin", "category_save", { id: cat, name: "Soft Drinks", daily_limit: 5 });
   h.slot = await h.rpc("admin", "slot_save", { label: "Slot 1", start_time: "13:00", end_time: "14:00", capacity: 30 });
   h.slot2 = await h.rpc("admin", "slot_save", { label: "Slot 2", start_time: "14:00", end_time: "15:00", capacity: 2 });
   await h.rpc("picker1", "picker_set_status", "available");
+  h.credit = (user, amount) => h.asPostgres("select wallet_credit($1, $2, 'refund', null, $3)", [h.users[user], amount, "test-credit-" + Math.random()]);
   h.pid = async (barcode) => (await h.asPostgres("select id from products where barcode=$1", [barcode])).rows[0].id;
   h.stock = async (barcode) => (await h.asPostgres("select stock_qty from products where barcode=$1", [barcode])).rows[0].stock_qty;
   h.order = async (id) => (await h.asPostgres("select * from orders where id=$1", [id])).rows[0];

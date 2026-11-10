@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
         amount: prep.amount_piastres,                       // piastres == Paymob "cents" for EGP
         currency: "EGP",
         payment_methods: [Number(env("PAYMOB_INTEGRATION_ID"))],
-        items: [{ name: `Order BF-${prep.order_no}`, amount: prep.amount_piastres, description: "Breadfast employee store", quantity: 1 }],
+        items: [{ name: `Order ${prep.order_ref}`, amount: prep.amount_piastres, description: "Breadfast employee store", quantity: 1 }],
         billing_data: {
           first_name: first || "Employee", last_name: rest.join(" ") || "Breadfast", email: prep.email ?? "noreply@example.com",
           phone_number: Deno.env.get("PAYMOB_FALLBACK_PHONE") ?? "+201000000000",

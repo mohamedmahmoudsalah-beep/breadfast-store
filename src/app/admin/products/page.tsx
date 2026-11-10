@@ -12,6 +12,8 @@ import { rpc } from "@/lib/rpc";
 import { useDebounced, useLoad } from "@/lib/hooks";
 import { egp, parseEgpToPiastres } from "@/lib/format";
 import { errorMessage } from "@/lib/errors";
+import { ExcelButton } from "@/components/ui/file-drop";
+import { downloadTable } from "@/lib/export";
 
 type P = { id: string; barcode: string; name: string; image_url: string | null; price_piastres: number; stock_qty: number; is_active: boolean; category_id: string | null; categories: { name: string } | null };
 const blank = { id: "", barcode: "", name: "", image_url: "", price: "", category_id: "", is_active: true };
@@ -46,14 +48,17 @@ function Products() {
       <div className="flex flex-wrap gap-3">
         <Input className="max-w-sm" placeholder="بحث بالاسم أو الباركود" value={search} onChange={(e) => setSearch(e.target.value)} />
         <Button onClick={() => setForm({ ...blank })}>+ منتج جديد</Button>
+        {data && <ExcelButton onClick={() => downloadTable("products.xlsx", "Products", [
+          { header: "Barcode", value: (p: P) => p.barcode }, { header: "Product Name", value: (p: P) => p.name }, { header: "Category", value: (p: P) => p.categories?.name }, { header: "Image URL", value: (p: P) => p.image_url },
+          { header: "Price", value: (p: P) => p.price_piastres / 100 }, { header: "Stock Quantity", value: (p: P) => p.stock_qty }, { header: "Active", value: (p: P) => (p.is_active ? "yes" : "no") }], data.products)}>تنزيل Excel</ExcelButton>}
       </div>
-      <p className="text-sm text-muted">الكميات لا تتعدل من هنا؛ استخدم «استيراد المخزون» (إضافة) أو «حركة المخزون» (تصحيح بسبب).</p>
+      <p className="text-sm text-muted">الكميات لا تتعدل من هنا؛ استخدم «رفع ملفات Excel ← المخزون» (إضافة) أو «حركة المخزون» (تصحيح بسبب). المنتج الظاهر لازم يكون له سعر أكبر من صفر.</p>
       {loading && !data ? <Spinner /> : error || !data ? <ErrorBox message={error ?? "خطأ"} onRetry={reload} /> : (
         <DataTable head={["", "المنتج", "الباركود", "القسم", "السعر", "المخزون", "الحالة", ""]}>
           {data.products.map((p) => (
             <tr key={p.id}>
               <Td><ProductImage src={p.image_url} name={p.name} className="h-10 w-10 rounded-lg" /></Td><Td>{p.name}</Td><Td dir="ltr">{p.barcode}</Td><Td>{p.categories?.name ?? "—"}</Td>
-              <Td>{egp(p.price_piastres)}</Td><Td>{p.stock_qty}</Td><Td><Badge tone={p.is_active ? "success" : "neutral"}>{p.is_active ? "نشط" : "موقوف"}</Badge></Td>
+              <Td>{egp(p.price_piastres)}</Td><Td>{p.stock_qty}</Td><Td>{p.price_piastres <= 0 ? <Badge tone="warning">بدون سعر (مخفي)</Badge> : <Badge tone={p.is_active ? "success" : "neutral"}>{p.is_active ? "نشط" : "موقوف"}</Badge>}</Td>
               <Td><Button size="sm" variant="secondary" onClick={() => setForm({ id: p.id, barcode: p.barcode, name: p.name, image_url: p.image_url ?? "", price: String(p.price_piastres / 100), category_id: p.category_id ?? "", is_active: p.is_active })}>تعديل</Button></Td>
             </tr>
           ))}

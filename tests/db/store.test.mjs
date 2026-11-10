@@ -23,45 +23,172 @@ test("HRID linking is rate limited", async () => {
   await h.rpcFails("brute", "RATE_LIMITED", "link_hrid", "X99");
 });
 
-test("additive import: adds to stock, keeps untouched products, protects empty fields", async () => {
+test("stock import is ADDITIVE and only touches stock; catalog import only touches product data", async () => {
   const h = await seed();
   assert.equal(await h.stock("111"), 100);
-  const b2 = await h.rpc("admin", "import_stage", "day2.csv", [
-    { barcode: "111", name: "", category: "", price: "", qty: "50", image_url: "" },
-    { barcode: "444", name: "Juice", category: "Drinks", price: "12", qty: "7" }]);
-  assert.equal(b2.new_count, 1); assert.equal(b2.update_count, 1);
+  // stock file: name + barcode + quantity
+  const b2 = await h.rpc("admin", "import_stage", "stock-day2.csv", [{ barcode: "111", name: "ignored name", qty: "50" }], "stock");
+  assert.equal(b2.update_count, 1);
   await h.rpc("admin", "import_confirm", b2.batch_id, false);
   assert.equal(await h.stock("111"), 150);                                   // 100 + 50, NOT replaced
   assert.equal(await h.stock("222"), 20);                                    // missing from file => unchanged
-  assert.equal(await h.stock("444"), 7);
   const p = (await h.asPostgres("select name, price_piastres from products where barcode='111'")).rows[0];
-  assert.equal(p.name, "Cola"); assert.equal(p.price_piastres, 1000);       // empty name/price did not erase
+  assert.equal(p.name, "Cola"); assert.equal(p.price_piastres, 1000);       // stock file never edits product data
   const mv = (await h.asPostgres("select qty_before, qty_delta, qty_after, actor_id from stock_movements where product_id=$1 and batch_id=$2", [h.cola, b2.batch_id])).rows[0];
   assert.deepEqual([mv.qty_before, mv.qty_delta, mv.qty_after], [100, 50, 150]);
   assert.equal(mv.actor_id, h.users.admin);
-  // an in-stock product that never appears in files stays available
-  assert.equal((await h.asPostgres("select is_active from products where barcode='222'")).rows[0].is_active, true);
+  // stock file for an unknown barcode is rejected (catalog must be uploaded first)
+  const unk = await h.rpc("admin", "import_stage", "x.xlsx", [{ barcode: "9999", qty: "5" }], "stock");
+  assert.equal(unk.invalid_count, 1);
+  assert.equal((await h.asPostgres("select error from stock_import_items where batch_id=$1", [unk.batch_id])).rows[0].error, "PRODUCT_NOT_FOUND");
+  await h.rpcFails("admin", "BATCH_HAS_INVALID_ROWS", "import_confirm", unk.batch_id, false);
+
+  // catalog file: name, barcode, category, image (+ optional price). Never touches stock.
+  const c = await h.rpc("admin", "import_stage", "catalog2.xlsx", [
+    { barcode: "444", name: "Juice", category: "Drinks", image_url: "https://img.test/j.png", price: "12" },
+    { barcode: "555", name: "No price yet", category: "Drinks" },
+    { barcode: "666", name: "No category", price: "7" },
+    { barcode: "111", name: "", category: "", price: "" }], "catalog");
+  assert.equal(c.new_count, 3); assert.equal(c.update_count, 1);
+  await h.rpc("admin", "import_confirm", c.batch_id, false);
+  const q = async (bc) => (await h.asPostgres("select p.name, p.price_piastres, p.stock_qty, p.is_active, c.name cat, c.is_system from products p join categories c on c.id=p.category_id where barcode=$1", [bc])).rows[0];
+  assert.deepEqual(await q("444"), { name: "Juice", price_piastres: 1200, stock_qty: 0, is_active: true, cat: "Drinks", is_system: false });
+  assert.equal((await q("555")).is_active, false);                           // no price => not sellable until priced
+  assert.equal((await q("666")).cat, "null");                                // no category => the system category "null"
+  assert.equal((await q("111")).name, "Cola");                               // empty cells do not erase
+  assert.equal(await h.stock("111"), 150);
+  assert.equal((await h.asPostgres("select count(*)::int c from stock_movements where batch_id=$1", [c.batch_id])).rows[0].c, 0);
+  // permissions: a stock manager cannot edit the catalog and vice versa
+  await h.addUser("stocker"); await h.grantRole("stocker", "admin"); await h.grantPerm("stocker", "stock.import");
+  await h.rpcFails("stocker", "FORBIDDEN", "import_stage", "x", [{ barcode: "1", name: "a", price: "1" }], "catalog");
+  assert.ok((await h.rpc("stocker", "import_stage", "ok", [{ barcode: "222", qty: "1" }], "stock")).batch_id);
 });
 
 test("import validation, duplicate batch protection, no double confirm", async () => {
   const h = await seed();
   const bad = await h.rpc("admin", "import_stage", "bad.xlsx", [
-    { barcode: "900", name: "A", price: "1", qty: "1" }, { barcode: "900", name: "B", price: "2", qty: "2" },
-    { barcode: "901", name: "", price: "", qty: "3" }, { barcode: "", name: "x", price: "1", qty: "1" }]);
-  assert.equal(bad.invalid_count, 4);
+    { barcode: "900", name: "A", price: "1" }, { barcode: "900", name: "B", price: "2" },
+    { barcode: "901", name: "", price: "" }, { barcode: "", name: "x", price: "1" }, { barcode: "902", name: "Zero", price: "0" }], "catalog");
+  assert.equal(bad.invalid_count, 5);
   await h.rpcFails("admin", "BATCH_HAS_INVALID_ROWS", "import_confirm", bad.batch_id, false);
 
   const rows = [{ barcode: "111", qty: "5" }];
-  const a = await h.rpc("admin", "import_stage", "same.xlsx", rows);
+  const a = await h.rpc("admin", "import_stage", "same.xlsx", rows, "stock");
   await h.rpc("admin", "import_confirm", a.batch_id, false);
   await h.rpcFails("admin", "BATCH_NOT_PENDING", "import_confirm", a.batch_id, false);   // refresh / double click
   assert.equal(await h.stock("111"), 105);
-  const again = await h.rpc("admin", "import_stage", "same-again.xlsx", rows);
+  const again = await h.rpc("admin", "import_stage", "same-again.xlsx", rows, "stock");
   assert.ok(again.duplicate_of, "duplicate warning expected");
   await h.rpcFails("admin", "DUPLICATE_BATCH", "import_confirm", again.batch_id, false);
   assert.equal(await h.stock("111"), 105);
   await h.rpc("admin", "import_confirm", again.batch_id, true);                           // intentional repeat delivery
   assert.equal(await h.stock("111"), 110);
+});
+
+test("category limits: upload list sets limits; system category 'null' is fixed at 2", async () => {
+  const h = await seed();
+  const r = await h.rpc("admin", "limits_import", [
+    { category: "Soft Drinks", limit: "7" }, { category: "Snacks", limit: "3" }, { category: "Nope", limit: "1" },
+    { category: "null", limit: "50" }, { category: "Snacks2", limit: "x" }]);
+  assert.equal(r.updated, 2); assert.equal(r.skipped_system, 1); assert.deepEqual(r.unknown, ["Nope", "Snacks2"]);
+  const lim = async (n) => (await h.asPostgres("select l.max_qty_per_employee m from category_daily_limits l join categories c on c.id=l.category_id where c.name=$1", [n])).rows[0]?.m;
+  assert.equal(await lim("Soft Drinks"), 7); assert.equal(await lim("Snacks"), 3); assert.equal(await lim("null"), 2);
+  await h.rpc("admin", "limits_import", [{ category: "Snacks", limit: "" }]);               // empty => no limit
+  assert.equal(await lim("Snacks"), undefined);
+  await assert.rejects(h.asPostgres("update category_daily_limits set max_qty_per_employee = 99 where category_id = null_category_id()"), /SYSTEM_CATEGORY/);
+  await assert.rejects(h.asPostgres("delete from category_daily_limits where category_id = null_category_id()"), /SYSTEM_CATEGORY/);
+  await assert.rejects(h.asPostgres("update categories set name='x' where is_system"), /SYSTEM_CATEGORY/);
+  await h.rpcFails("emp1", "FORBIDDEN", "limits_import", [{ category: "Snacks", limit: "1" }]);
+});
+
+test("products without a category land in 'null' with the fixed limit of 2 per employee per day", async () => {
+  const h = await seed();
+  const c = await h.rpc("admin", "import_stage", "c.xlsx", [{ barcode: "777", name: "Loose item", price: "3" }], "catalog");
+  await h.rpc("admin", "import_confirm", c.batch_id, false);
+  const s = await h.rpc("admin", "import_stage", "s.xlsx", [{ barcode: "777", qty: "50" }], "stock");
+  await h.rpc("admin", "import_confirm", s.batch_id, false);
+  const loose = await h.pid("777");
+  await h.rpcFails("emp1", "CATEGORY_LIMIT_EXCEEDED", "create_order", [{ product_id: loose, qty: 3 }], h.slot, key(), true);
+  await orderOk(h, "emp1", [{ product_id: loose, qty: 2 }]);
+  await h.rpcFails("emp1", "CATEGORY_LIMIT_EXCEEDED", "create_order", [{ product_id: loose, qty: 1 }], h.slot, key(), true);
+  // a product explicitly saved without category also goes to 'null'
+  const id = await h.rpc("admin", "product_save", { barcode: "888", name: "Another", price_piastres: 100, is_active: true });
+  assert.equal((await h.asPostgres("select c.name from products p join categories c on c.id=p.category_id where p.id=$1", [id])).rows[0].name, "null");
+});
+
+test("prices sheet: sets prices, activates products that had none, rejects unknown/invalid rows", async () => {
+  const h = await seed();
+  const c = await h.rpc("admin", "import_stage", "c.xlsx", [{ barcode: "901", name: "Unpriced A", category: "Snacks" }, { barcode: "902", name: "Unpriced B" }], "catalog");
+  await h.rpc("admin", "import_confirm", c.batch_id, false);
+  const s = await h.rpc("admin", "import_stage", "s.xlsx", [{ barcode: "901", qty: "10" }, { barcode: "902", qty: "10" }], "stock");
+  await h.rpc("admin", "import_confirm", s.batch_id, false);
+  const visible = async (bc) => (await h.asPostgres("select is_active, price_piastres from products where barcode=$1", [bc])).rows[0];
+  assert.deepEqual(await visible("901"), { is_active: false, price_piastres: 0 });          // no price => hidden from the store
+  const a = await h.as("emp1", "select barcode from products where barcode in ('901','902')");
+  assert.equal(a.rows.length, 0);
+  const bad = await h.rpc("admin", "import_stage", "bad.xlsx", [{ barcode: "9999", price: "5" }, { barcode: "901", price: "" }, { barcode: "902", price: "0" }], "price");
+  assert.equal(bad.invalid_count, 3);
+  const p = await h.rpc("admin", "import_stage", "prices.xlsx", [{ barcode: "901", name: "x", price: "12.5" }, { barcode: "111", name: "Cola", price: "11" }], "price");
+  assert.equal(p.invalid_count, 0);
+  await h.rpc("admin", "import_confirm", p.batch_id, false);
+  assert.deepEqual(await visible("901"), { is_active: true, price_piastres: 1250 });        // priced => visible
+  assert.deepEqual(await visible("902"), { is_active: false, price_piastres: 0 });          // still no price => still hidden
+  assert.equal((await h.asPostgres("select name from products where barcode='901'")).rows[0].name, "Unpriced A");   // price sheet never renames
+  assert.equal((await h.asPostgres("select price_piastres p from products where barcode='111'")).rows[0].p, 1100);
+  assert.equal(await h.stock("901"), 10);                                                    // never touches stock
+  assert.equal((await h.as("emp1", "select barcode from products where barcode in ('901','902')")).rows.length, 1);
+  // a product an admin switched off on purpose stays off when its price changes
+  await h.asPostgres("update products set is_active=false where barcode='222'");
+  const q = await h.rpc("admin", "import_stage", "p2.xlsx", [{ barcode: "222", price: "30" }], "price");
+  await h.rpc("admin", "import_confirm", q.batch_id, false);
+  assert.equal((await visible("222")).is_active, false);
+  await h.rpcFails("emp1", "FORBIDDEN", "import_stage", "x", [{ barcode: "1", price: "1" }], "price");
+});
+
+test("an active product must have a price", async () => {
+  const h = await seed();
+  await assert.rejects(h.asPostgres("update products set price_piastres = 0 where barcode='111'"), /products_active_needs_price/);
+});
+
+test("unpaid checkouts are not orders: no order number until paid, hidden from admin lists and reports", async () => {
+  const h = await seed();
+  const o = await placeOrder(h, "emp1", [{ product_id: h.cola, qty: 1 }]);
+  assert.equal((await h.order(o.order_id)).order_no, null);
+  assert.equal(o.order_no, null);
+  assert.equal((await h.rpc("admin", "admin_search_orders", {})).length, 0);                  // hidden
+  assert.equal((await h.rpc("admin", "admin_search_orders", { status: "pending_payment" })).length, 1);   // visible only on request
+  const prep = await h.rpc("emp1", "payment_prepare", o.order_id, "order");
+  assert.match(prep.order_ref, /^CHK-/);
+  await payOrder(h, "emp1", o.order_id);
+  const paid = await h.order(o.order_id);
+  assert.ok(Number(paid.order_no) >= 1001);
+  assert.equal((await h.rpc("admin", "admin_search_orders", {})).length, 1);
+  // numbers are consecutive over PAID orders only (expired checkouts do not burn numbers)
+  const o2 = await placeOrder(h, "emp2", [{ product_id: h.cola, qty: 1 }]);
+  await h.setNow("2026-11-09T07:30:00Z"); await h.asPostgres("select run_scheduled_jobs()");
+  await h.setNow("2026-11-09T07:31:00Z");
+  const o3 = await orderOk(h, "emp3", [{ product_id: h.cola, qty: 1 }]);
+  assert.equal(Number((await h.order(o3.order_id)).order_no), Number(paid.order_no) + 1);
+  assert.equal((await h.order(o2.order_id)).order_no, null);
+  // wallet-only orders get their number immediately
+  await h.credit("emp1", 100000);
+  const w = await placeOrder(h, "emp1", [{ product_id: h.chips, qty: 1 }]);
+  assert.ok(w.order_no);
+});
+
+test("admin wallet editing no longer exists", async () => {
+  const h = await seed();
+  await assert.rejects(h.rpc("admin", "admin_wallet_adjust", h.users.emp1, 100, "x"), /does not exist/);
+  await assert.rejects(h.as("admin", "update wallets set balance_piastres = 1"), /permission denied/);
+});
+
+test("card refunds are kicked automatically (safe no-op when pg_net/config are absent)", async () => {
+  const h = await seed();
+  const o = await orderOk(h, "emp1", [{ product_id: h.chips, qty: 1 }]);
+  await h.rpc("emp1", "cancel_order", o.order_id, false);                      // insert trigger runs kick_refund_worker without error
+  assert.equal((await h.asPostgres("select count(*)::int c from refunds where status='pending'")).rows[0].c, 1);
+  const jobs = await h.asPostgres("select run_scheduled_jobs() r");
+  assert.ok(jobs.rows[0].r);
 });
 
 test("stock adjustment needs permission + reason, is logged, never negative", async () => {
@@ -117,7 +244,7 @@ test("category daily limit is shared by ALL orders of the day and released on ca
   const h = await seed();                                                           // Soft Drinks limit = 5 per employee
   const a = await orderOk(h, "emp1", [{ product_id: h.cola, qty: 4 }]);
   await h.rpcFails("emp1", "CATEGORY_LIMIT_EXCEEDED", "create_order", [{ product_id: h.water, qty: 2 }], h.slot, key(), true);
-  const u = (await h.as("emp1", "select * from my_category_usage()")).rows[0];
+  const u = (await h.as("emp1", "select * from my_category_usage()")).rows.find((r) => r.max_qty === 5);
   assert.equal(u.used, 4); assert.equal(u.max_qty, 5);
   await orderOk(h, "emp1", [{ product_id: h.water, qty: 1 }]);                      // exactly one more is fine
   await h.rpcFails("emp1", "CATEGORY_LIMIT_EXCEEDED", "create_order", [{ product_id: h.cola, qty: 1 }], h.slot, key(), true);
@@ -146,7 +273,7 @@ test("time slots: capacity, past slots, disabled days", async () => {
 
 test("unpaid orders expire and release stock, category quota, slot and wallet", async () => {
   const h = await seed();
-  await h.rpc("admin", "admin_wallet_adjust", h.users.emp1, 2000, "gift");
+  await h.credit("emp1", 2000);
   const o = await placeOrder(h, "emp1", [{ product_id: h.cola, qty: 5 }]);
   assert.equal(await h.stock("111"), 95);
   assert.equal(o.wallet_applied_piastres, 2000);
@@ -325,7 +452,7 @@ test("bag cost above EUR 10: wallet first, remainder must be paid before collect
   await h.rpc("pickup1", "pickup_collect", (await h.order(o.order_id)).pickup_code);
 
   // with wallet credit available it is used first, no card needed
-  await h.rpc("admin", "admin_wallet_adjust", h.users.emp2, 700, "credit");
+  await h.credit("emp2", 700);
   const o2 = await orderOk(h, "emp2", [{ product_id: h.cola, qty: 1 }], { wallet: false });
   await h.rpc("picker1", "picker_scan", o2.order_id, "111");
   const d2 = await h.rpc("picker1", "picker_complete_order", o2.order_id, 0, 1);
@@ -347,12 +474,12 @@ test("all items unavailable cancels the order with a full refund", async () => {
 
 test("wallet: immutable ledger, no direct balance edits, no overdraft, idempotent credits", async () => {
   const h = await seed();
-  await h.rpc("admin", "admin_wallet_adjust", h.users.emp1, 500, "bonus");
+  await h.credit("emp1", 500);
   await assert.rejects(h.asPostgres("update wallets set balance_piastres = 999999 where user_id=$1", [h.users.emp1]), /WALLET_DIRECT_CHANGE_FORBIDDEN/);
   await assert.rejects(h.asPostgres("update wallet_transactions set amount_piastres = 1"), /IMMUTABLE/);
   await assert.rejects(h.asPostgres("delete from wallet_transactions"), /IMMUTABLE/);
   await assert.rejects(h.as("emp1", "insert into wallet_transactions(user_id,direction,amount_piastres,reason) values ($1,'credit',100000,'x')", [h.users.emp1]), /permission denied/);
-  await h.rpcFails("admin", "INSUFFICIENT_WALLET", "admin_wallet_adjust", h.users.emp1, -600, "too much");
+  await assert.rejects(h.asPostgres("select wallet_debit($1, 600, 'x', null, 'k-over')", [h.users.emp1]), /INSUFFICIENT_WALLET/);
   await h.asPostgres("select wallet_credit($1, 100, 'refund', null, 'same-key')", [h.users.emp1]);
   await h.asPostgres("select wallet_credit($1, 100, 'refund', null, 'same-key')", [h.users.emp1]);   // duplicate ignored
   const w = (await h.asPostgres("select balance_piastres b from wallets where user_id=$1", [h.users.emp1])).rows[0].b;
@@ -380,10 +507,9 @@ test("permissions and RLS: each role sees only what it must", async () => {
   await assert.rejects(h.as("emp1", "update products set price_piastres = 1"), /permission denied/);
   await assert.rejects(h.as("admin", "insert into products(barcode,name) values ('x','y')"), /permission denied/);
   await assert.rejects(h.as("emp1", "delete from audit_logs"), /permission denied/);
-  await h.rpcFails("emp1", "FORBIDDEN", "import_stage", "x", [{ barcode: "1" }]);
+  await h.rpcFails("emp1", "FORBIDDEN", "import_stage", "x", [{ barcode: "1" }], "stock");
   await h.rpcFails("emp1", "FORBIDDEN", "dashboard_stats");
   await h.rpcFails("emp1", "FORBIDDEN", "report_sales", "2026-11-09", "2026-11-09");
-  await h.rpcFails("emp1", "FORBIDDEN", "admin_wallet_adjust", h.users.emp1, 100000, "free money");
   await h.rpcFails("emp1", "FORBIDDEN", "setting_set", "fee_bp", "0");
   // an admin only gets what the super admin grants
   await h.addUser("limited"); await h.grantRole("limited", "admin");

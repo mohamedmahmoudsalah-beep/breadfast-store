@@ -13,8 +13,3 @@ export async function startCardPayment(orderId: string, purpose: "order" | "extr
   if (!url) throw new Error("PAYMENT_INIT_FAILED");
   window.location.href = url;
 }
-
-/** Fire-and-forget: ask the worker to push pending card refunds to Paymob. */
-export async function kickRefundWorker(): Promise<void> {
-  try { await getSupabase().functions.invoke("process-refunds", { body: {} }); } catch { /* admins can retry later */ }
-}

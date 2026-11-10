@@ -43,6 +43,15 @@ function CartView() {
     return qty > lim.max - lim.used ? [`${name}: المتاح لك ${Math.max(lim.max - lim.used, 0)} فقط`] : [];
   });
 
+  // can this line go up by one? (stock, per-order maximum, and the daily category limit shared by the whole cart)
+  const canIncrease = (l: (typeof cart.lines)[number]) => {
+    if (l.qty >= l.stock_qty || l.qty >= (meta.settings?.max_item_qty ?? 50)) return false;
+    const lim = l.category_id ? meta.limits[l.category_id] : undefined;
+    if (!lim) return true;
+    const inCategory = cart.lines.filter((x) => x.category_id === l.category_id).reduce((t, x) => t + x.qty, 0);
+    return inCategory + 1 <= lim.max - lim.used;
+  };
+
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
       <div className="grid gap-3">
@@ -55,7 +64,7 @@ function CartView() {
               <div className="mt-1 flex items-center gap-2">
                 <Button size="sm" variant="secondary" aria-label="تقليل" onClick={() => cart.setQty(l, l.qty - 1)}>−</Button>
                 <span className="min-w-8 text-center font-bold">{l.qty}</span>
-                <Button size="sm" variant="secondary" aria-label="زيادة" disabled={l.qty >= l.stock_qty || l.qty >= (meta.settings?.max_item_qty ?? 50)} onClick={() => cart.setQty(l, l.qty + 1)}>+</Button>
+                <Button size="sm" variant="secondary" aria-label="زيادة" disabled={!canIncrease(l)} onClick={() => cart.setQty(l, l.qty + 1)}>+</Button>
                 <button className="ms-2 text-sm text-danger underline" onClick={() => cart.remove(l.product_id)}>حذف</button>
               </div>
             </div>

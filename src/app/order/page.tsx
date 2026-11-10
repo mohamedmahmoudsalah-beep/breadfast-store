@@ -15,10 +15,11 @@ import { rpc } from "@/lib/rpc";
 import { useLoad, useRealtime } from "@/lib/hooks";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, STATUS_TONE, cairoDateTime, cairoTime, egp, orderNo } from "@/lib/format";
 import { errorMessage } from "@/lib/errors";
-import { startCardPayment, kickRefundWorker } from "@/lib/payments";
+import { startCardPayment } from "@/lib/payments";
 import { cn } from "@/lib/utils";
+import { groupByCategory } from "@/lib/group";
 
-type Item = { id: string; name: string; barcode: string; image_url: string | null; unit_price_piastres: number; qty_ordered: number; qty_prepared: number; qty_unavailable: number; status: string };
+type Item = { id: string; name: string; category_name: string | null; barcode: string; image_url: string | null; unit_price_piastres: number; qty_ordered: number; qty_prepared: number; qty_unavailable: number; status: string };
 type Hist = { id: number; to_status: string; created_at: string };
 type Refund = { id: string; method: string; amount_piastres: number; status: string; kind: string; created_at: string };
 type Order = {
@@ -65,7 +66,7 @@ function Detail() {
   return (
     <div className="grid gap-5">
       <Card className="flex flex-wrap items-center justify-between gap-3">
-        <div><p className="text-xl font-bold">{orderNo(o.order_no)}</p><p className="text-sm text-muted">{cairoDateTime(o.created_at)} • {o.slot_label}</p></div>
+        <div><p className="text-xl font-bold">{o.order_no ? orderNo(o.order_no) : "طلب بانتظار الدفع"}</p><p className="text-sm text-muted">{cairoDateTime(o.created_at)} • {o.slot_label}</p></div>
         <Badge tone={STATUS_TONE[o.status] ?? "neutral"} className="text-base">{ORDER_STATUS_LABEL[o.status] ?? o.status}</Badge>
       </Card>
 
@@ -107,18 +108,23 @@ function Detail() {
 
       <Card>
         <h2 className="mb-3 text-lg font-bold">المنتجات</h2>
-        <ul className="grid gap-3">
-          {[...o.order_items].sort((a, b) => Number(a.status !== "pending") - Number(b.status !== "pending")).map((it) => (
-            <li key={it.id} className={cn("flex items-center gap-3", it.status !== "pending" && "opacity-70")}>
-              <ProductImage src={it.image_url} name={it.name} className="h-14 w-14 rounded-xl" />
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">{it.name}</p>
-                <p className="text-sm text-muted">{it.qty_ordered} × {egp(it.unit_price_piastres)}{it.qty_unavailable > 0 && <span className="text-danger"> • غير متوفر: {it.qty_unavailable}</span>}</p>
-              </div>
-              <b>{egp(it.unit_price_piastres * (o.final_total_piastres !== null ? it.qty_prepared : it.qty_ordered - it.qty_unavailable))}</b>
-            </li>
-          ))}
-        </ul>
+        {groupByCategory(o.order_items, (i) => i.status !== "pending").map(([cat, list]) => (
+          <section key={cat} className="mb-4">
+            <h3 className="mb-2 border-b border-line pb-1 text-base text-brand-700">{cat} <span className="text-sm text-muted">({list.length})</span></h3>
+            <ul className="grid gap-3">
+              {list.map((it) => (
+                <li key={it.id} className={cn("flex items-center gap-3", it.status !== "pending" && "opacity-70")}>
+                  <ProductImage src={it.image_url} name={it.name} className="h-14 w-14 rounded-xl" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">{it.name}</p>
+                    <p className="text-sm text-muted">{it.qty_ordered} × {egp(it.unit_price_piastres)}{it.qty_unavailable > 0 && <span className="text-danger"> • غير متوفر: {it.qty_unavailable}</span>}</p>
+                  </div>
+                  <b>{egp(it.unit_price_piastres * (o.final_total_piastres !== null ? it.qty_prepared : it.qty_ordered - it.qty_unavailable))}</b>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
         <dl className="mt-4 grid gap-1 border-t border-line pt-3">
           <div className="flex justify-between"><dt>المنتجات</dt><dd>{egp(o.prepared_subtotal_piastres ?? o.subtotal_piastres)}</dd></div>
           <div className="flex justify-between"><dt>{o.bag_actual_piastres !== null ? `الأكياس (${o.bag_small_count ?? 0} صغير، ${o.bag_large_count ?? 0} كبير)` : "كيس التسوق (مبدئي)"}</dt><dd>{egp(o.bag_actual_piastres ?? o.bag_initial_piastres)}</dd></div>
@@ -151,7 +157,7 @@ function Detail() {
             {o.status !== "pending_payment" && (
               <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={toWallet} onChange={(e) => setToWallet(e.target.checked)} /> استرداد المبلغ في محفظتي بدل البطاقة</label>
             )}
-            <Button variant="danger" className="mt-3" loading={busy} onClick={() => { if (confirm("متأكد إنك عايز تلغي الطلب؟")) void run(async () => { await rpc("cancel_order", { p_order: o.id, p_refund_to_wallet: toWallet }); void kickRefundWorker(); }, "تم إلغاء الطلب"); }}>إلغاء الطلب</Button>
+            <Button variant="danger" className="mt-3" loading={busy} onClick={() => { if (confirm("متأكد إنك عايز تلغي الطلب؟")) void run(async () => { await rpc("cancel_order", { p_order: o.id, p_refund_to_wallet: toWallet }); }, "تم إلغاء الطلب"); }}>إلغاء الطلب</Button>
           </>
         ) : <p className="text-sm text-muted">{["canceled", "expired", "collected"].includes(o.status) ? "لا يمكن إلغاء هذا الطلب." : "لا يمكن الإلغاء لأن التجهيز بدأ. تواصل مع الإدارة لو محتاج."}</p>}
       </Card>

@@ -35,7 +35,7 @@ npm run build     # لازم ينجح
 
 ## 3) نفّذ ملفات قاعدة البيانات (Migrations)
 **الطريقة الأسهل:** افتح **SQL Editor** في Supabase، وانسخ محتوى كل ملف من `supabase/migrations/` **بالترتيب** والصقه وشغّله (Run):
-`0001_core.sql` ← `0002_catalog.sql` ← `0003_schedule.sql` ← `0004_orders_payments.sql` ← `0005_fulfillment.sql` ← `0006_admin_reports.sql` ← `0007_rls_grants.sql` ← `0008_admin_link.sql`
+`0001_core.sql` ← `0002_catalog.sql` ← `0003_schedule.sql` ← `0004_orders_payments.sql` ← `0005_fulfillment.sql` ← `0006_admin_reports.sql` ← `0007_rls_grants.sql` ← `0008_admin_link.sql` ← `0009_changes.sql` ← `0010_price_sheet.sql`
 
 (أو بالـ CLI: `npx supabase login` ثم `npx supabase link --project-ref YOUR_REF` ثم `npx supabase db push`.)
 
@@ -54,11 +54,12 @@ npm run build     # لازم ينجح
 3. اعمل Logout/Login. هيظهر لك قسم **الإدارة**.
 4. لأن حسابك مش مربوط بـ HRID: ضيف نفسك في «المستخدمون ← سجل الموظفين» (أو من SQL) واربط الـ HRID بتاعك من صفحة الربط.
 
-## 6) Paymob (ابدأ بـ Test/Sandbox)
-1. من Dashboard ← **Developers**: خد `Secret Key` و `Public Key` و `HMAC` (الوضع Test).
-2. من **Developers ← Payment Integrations**: انسخ رقم الـ **Integration ID** الخاص بالكارت (Online Card).
-3. في إعدادات الـ Integration حط **Transaction processed callback** = `https://YOUR_REF.supabase.co/functions/v1/paymob-webhook`
-4. اسأل Paymob عن: شروط تفعيل الحساب الحقيقي (Live)، عمولة العملية، مدة التسوية، وهل الاسترداد (Refund) و الإلغاء في نفس اليوم (Void) متاحين عبر الـ API.
+## 6) Paymob (ابدأ بـ Test)
+1. ادخل Dashboard بتاع Paymob، وفي **أعلى اليسار** تأكد إن الوضع **Test** (للتجربة) — بعدين هتحوّله Live.
+2. **Settings** (القائمة اليسار) ← قسم **Account Info**: انسخ **HMAC**، واضغط **View** جنب كل من **API Key** و **Secret Key** و **Public Key** وانسخهم.
+3. **Developers ← Payment Integrations**: لازم تلاقي integration بتاع الكارت (Online Card). رقمه هو الـ **Integration ID**. لو مش موجود كلّم دعم Paymob.
+4. افتح الـ Integration وحط في **Transaction processed callback**: `https://REF.supabase.co/functions/v1/paymob-webhook` (الكود بيبعته كمان مع كل عملية، ده تأمين زيادة).
+5. اسأل Paymob: شروط تفعيل Live، العمولة، مدة التسوية، وهل الاسترداد/الإلغاء في نفس اليوم عبر الـ API.
 
 ## 7) انشر الـ Edge Functions (الدفع)
 ```bash
@@ -68,19 +69,27 @@ cp supabase/functions/.env.example supabase/functions/.env     # عدّل الق
 npx supabase secrets set --env-file supabase/functions/.env
 npx supabase functions deploy paymob-init
 npx supabase functions deploy paymob-webhook --no-verify-jwt
-npx supabase functions deploy process-refunds
+npx supabase functions deploy process-refunds --no-verify-jwt
 npx supabase functions deploy admin-create-user
 ```
 `paymob-webhook` لازم `--no-verify-jwt` (Paymob بيناديه من الإنترنت، وحمايته بالتوقيع HMAC).
 
-## 8) Cloudflare Pages (الموقع)
-1. Cloudflare ← **Workers & Pages ← Create ← Pages ← Connect to Git** ← اختار `breadfast-store`.
-2. الإعدادات:
-   - Framework preset: **Next.js (Static HTML Export)**
-   - Build command: `npm run build`
-   - Build output directory: `out`
-3. **Environment variables** (Production): `NEXT_PUBLIC_SUPABASE_URL` و `NEXT_PUBLIC_SUPABASE_ANON_KEY` و `NODE_VERSION=22`.
-4. Save and Deploy. بعد ما يخلص هتاخد رابط `https://xxxx.pages.dev`. ارجع حطه في: Supabase (Site URL و Redirect URLs) وفي `SITE_URL` بتاع الـ Edge Functions (`npx supabase secrets set SITE_URL=...`) وفي إعدادات Paymob لو طلب.
+## 7.5) الاستردادات التلقائية (مرة واحدة)
+الاستردادات على الكارت بتتبعت لـ Paymob **لوحدها** (فورًا + كل دقيقة). فعّل ده مرة واحدة من SQL Editor (بدّل القيمتين):
+```sql
+insert into app_private_config(key, value) values
+  ('functions_url', 'https://REF.supabase.co/functions/v1'),
+  ('cron_secret',   'نفس قيمة CRON_SECRET اللي حطيتها في Supabase Secrets')
+on conflict (key) do update set value = excluded.value;
+```
+ولازم تفعّل الإضافة `pg_net` من **Database ← Extensions** لو مش مفعّلة. (لو تعطّل، `.github/workflows/refunds.yml` بيشتغل كاحتياطي كل 10 دقايق.)
+
+## 8) Cloudflare (الموقع)
+المشروع فيه ملف `wrangler.jsonc` جاهز (بيقول لـ Cloudflare ينشر فولدر `out` كملفات ثابتة). **لازم الملف ده يكون موجود في GitHub.**
+1. Cloudflare ← **Workers & Pages ← Create ← Connect to Git** ← اختار `breadfast-store` (branch `main`).
+2. Build command: `npm run build` — Deploy command: `npx wrangler deploy` (الافتراضي) — Root directory: سيبه فاضي.
+3. **Variables** (لازم تتحط وقت الـ Build): `NEXT_PUBLIC_SUPABASE_URL` و `NEXT_PUBLIC_SUPABASE_ANON_KEY` و `NODE_VERSION=22`.
+4. بعد النشر هتاخد رابط `https://breadfast-store.<اسمك>.workers.dev` (أو `.pages.dev`). حطه في Supabase (Site URL و Redirect URLs) وفي `SITE_URL` للـ Edge Functions.
 5. افتح `/status/` وتأكد إن Supabase «متصل».
 
 ## 9) الإعداد الأولي من لوحة الإدارة (بالترتيب)
@@ -88,7 +97,7 @@ npx supabase functions deploy admin-create-user
 2. **المواعيد:** أيام العمل (الإثنين والخميس مفعّلين افتراضيًا) + مواعيد الاستلام وسعتها. (بداية الموعد لازم تكون بعد بداية اليوم التجاري.)
 3. **المستخدمون:** ارفع ملف الموظفين (HRID + الاسم). اعمل حسابات المجهزين وموظفي الاستلام، ومن «إدارة» (Super Admin) اختار دورهم (مجهّز / موظف استلام). كل مجهّز يدخل صفحة «التجهيز» ويغيّر حالته لـ «متاح».
 4. **الأقسام والحدود:** ضيف الحدود اليومية لكل موظف.
-5. **استيراد المخزون:** ارفع ملف Excel/CSV وراجع المعاينة ثم أكّد.
+5. **رفع ملفات Excel** (لكل تبويب تمبليت جاهز تحمّله): (1) بيانات المنتجات: باركود/اسم/قسم/صورة (2) الأسعار: باركود/اسم/سعر (المنتج من غير سعر مخفي) (3) المخزون: باركود/اسم/كمية (إضافة) (4) حدود الأقسام. راجع المعاينة ثم أكّد.
 
 ## 10) تجربة كاملة قبل الإطلاق (إجباري)
 جرّب بـ Paymob **Sandbox** وكروت الاختبار من Paymob:

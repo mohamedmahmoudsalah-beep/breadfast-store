@@ -27,7 +27,7 @@ function Details() {
 }
 
 function Body({ p, meta }: { p: Product & { categories: { name: string } | null }; meta: ReturnType<typeof useStoreMeta>["meta"] }) {
-  const { remainingLimit } = useMaxAddable(p, meta);
+  const { leftToday } = useMaxAddable(p, meta);
   return (
     <div className="grid gap-6 rounded-3xl bg-white p-5 md:grid-cols-2">
       <ProductImage src={p.image_url} name={p.name} className="aspect-square w-full rounded-2xl" />
@@ -37,7 +37,7 @@ function Body({ p, meta }: { p: Product & { categories: { name: string } | null 
         <p className="text-3xl font-bold text-brand-600">{egp(p.price_piastres)}</p>
         <p className="text-sm text-muted">السعر هو السعر النهائي للموظف بدون أي هامش ربح.</p>
         <p>{p.stock_qty > 0 ? `متاح في المخزون: ${p.stock_qty}` : "غير متاح حاليًا"}</p>
-        {remainingLimit !== null && <p className="text-brand-700">المتبقي لك اليوم من هذا القسم: {remainingLimit}</p>}
+        {leftToday !== null && <p className="text-brand-700">المتبقي لك اليوم من هذا القسم: {leftToday}</p>}
         <p className="text-sm text-muted" dir="ltr">Barcode: {p.barcode}</p>
         <div className="mt-2"><QtyControl p={p} meta={meta} large /></div>
       </div>

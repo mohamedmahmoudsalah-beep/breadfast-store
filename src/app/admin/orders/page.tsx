@@ -12,7 +12,8 @@ import { rpc } from "@/lib/rpc";
 import { useLoad } from "@/lib/hooks";
 import { ORDER_STATUS_LABEL, STATUS_TONE, cairoDateTime, egp, orderNo } from "@/lib/format";
 import { errorMessage } from "@/lib/errors";
-import { kickRefundWorker } from "@/lib/payments";
+import { ExcelButton } from "@/components/ui/file-drop";
+import { downloadTable } from "@/lib/export";
 
 type Row = { id: string; order_no: number; status: string; hrid: string; employee_name: string; business_date: string; slot_label: string; created_at: string; total_piastres: number; is_partial: boolean; extra_due_piastres: number; picker_name: string | null; pickup_name: string | null; payment_method: string };
 type Picker = { user_id: string; status: string; name: string };
@@ -57,7 +58,11 @@ function Orders() {
         <Field label="اسم الموظف"><Input value={f.employee} onChange={set("employee")} /></Field>
         <Field label="رقم الطلب"><Input value={f.order_no} onChange={set("order_no")} inputMode="numeric" dir="ltr" /></Field>
         <Field label="باركود منتج"><Input value={f.barcode} onChange={set("barcode")} dir="ltr" /></Field>
-        <div className="flex gap-2 sm:col-span-4"><Button type="submit">بحث</Button><Button type="button" variant="ghost" onClick={() => { setF(empty); setApplied(empty); }}>مسح</Button></div>
+        <div className="flex gap-2 sm:col-span-4"><Button type="submit">بحث</Button><Button type="button" variant="ghost" onClick={() => { setF(empty); setApplied(empty); }}>مسح</Button>
+          {data && <ExcelButton onClick={() => downloadTable("orders.xlsx", "Orders", [
+            { header: "Order", value: (o: Row) => (o.order_no ? `BF-${o.order_no}` : "") }, { header: "Employee", value: (o: Row) => o.employee_name }, { header: "HRID", value: (o: Row) => o.hrid },
+            { header: "Date", value: (o: Row) => o.business_date }, { header: "Slot", value: (o: Row) => o.slot_label }, { header: "Status", value: (o: Row) => o.status },
+            { header: "Total (EGP)", value: (o: Row) => o.total_piastres / 100 }, { header: "Payment", value: (o: Row) => o.payment_method }, { header: "Picker", value: (o: Row) => o.picker_name }, { header: "Pickup", value: (o: Row) => o.pickup_name }], data.rows)}>تنزيل Excel</ExcelButton>}</div>
       </form>
       {loading && !data ? <Spinner /> : error || !data ? <ErrorBox message={error ?? "خطأ"} onRetry={reload} /> : (
         <DataTable head={["الطلب", "الموظف", "اليوم", "الموعد", "الحالة", "الإجمالي", "الدفع", "المجهّز", "الاستلام", ""]}>
@@ -91,7 +96,7 @@ function Orders() {
                 <b className="text-danger">إلغاء الطلب (استثناء إداري)</b>
                 <Field label="السبب (إجباري)"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={toWallet} onChange={(e) => setToWallet(e.target.checked)} /> الاسترداد للمحفظة بدل البطاقة</label>
-                <Button variant="danger" loading={busy} disabled={reason.trim().length < 3} onClick={() => run(async () => { await rpc("admin_cancel_order", { p_order: sel.id, p_reason: reason, p_refund_to_wallet: toWallet }); void kickRefundWorker(); }, "تم إلغاء الطلب")}>إلغاء الطلب</Button>
+                <Button variant="danger" loading={busy} disabled={reason.trim().length < 3} onClick={() => run(async () => { await rpc("admin_cancel_order", { p_order: sel.id, p_reason: reason, p_refund_to_wallet: toWallet }); }, "تم إلغاء الطلب")}>إلغاء الطلب</Button>
               </div>
             )}
           </div>

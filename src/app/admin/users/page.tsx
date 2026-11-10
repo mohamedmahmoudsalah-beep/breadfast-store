@@ -11,6 +11,8 @@ import { useAuth } from "@/lib/auth";
 import { getSupabase } from "@/lib/supabase/client";
 import { rpc } from "@/lib/rpc";
 import { mapRows, readTable } from "@/lib/files";
+import { ExcelButton, FileDrop } from "@/components/ui/file-drop";
+import { downloadTable, downloadTemplate } from "@/lib/export";
 import { useDebounced, useLoad } from "@/lib/hooks";
 import { errorMessage } from "@/lib/errors";
 
@@ -20,7 +22,7 @@ const PERMS: [string, string][] = [
   ["dashboard.view", "عرض لوحة التحكم"], ["orders.view", "عرض الطلبات"], ["orders.manage", "إدارة الطلبات (إلغاء/إعادة تعيين)"], ["products.manage", "إدارة المنتجات"],
   ["stock.import", "استيراد المخزون"], ["stock.adjust", "تصحيح المخزون"], ["categories.manage", "إدارة الأقسام"], ["limits.manage", "الحدود اليومية"],
   ["schedule.manage", "المواعيد وأيام العمل"], ["settings.manage", "الإعدادات"], ["bags.manage", "أسعار الأكياس"], ["payments.view", "عرض المدفوعات"],
-  ["refunds.manage", "إدارة الاستردادات"], ["wallets.manage", "تعديل المحافظ"], ["reports.export", "تصدير التقارير"], ["users.manage", "إدارة المستخدمين"],
+  ["refunds.manage", "إدارة الاستردادات"], ["wallets.manage", "عرض المحافظ"], ["reports.export", "تصدير التقارير"], ["users.manage", "إدارة المستخدمين"],
   ["employees.import", "استيراد سجل الموظفين"], ["pickers.manage", "إدارة المجهّزين"], ["audit.view", "سجل المراجعة"],
 ];
 
@@ -67,11 +69,13 @@ function Users() {
       <Card className="grid gap-3">
         <h2 className="font-bold">سجل الموظفين (HRID)</h2>
         <p className="text-sm text-muted">ارفع ملف Excel/CSV فيه عمودين: HRID واسم الموظف. الاستيراد بيضيف ويحدّث الأسماء ولا يحذف أبدًا.</p>
-        <input type="file" accept=".xlsx,.csv" onChange={(e) => { void importHrid(e.target.files?.[0]); e.target.value = ""; }} />
+        <div><ExcelButton onClick={() => downloadTemplate("template-employees.xlsx", ["HRID", "Employee Name"], [["1001", "أحمد علي"]], ["الأعمدة: HRID و Employee Name. امسح صف المثال قبل الرفع."])}>تحميل تمبليت الموظفين</ExcelButton></div>
+        <FileDrop onFile={(f) => void importHrid(f)} title="اضغط هنا لاختيار ملف الموظفين (Excel)" />
       </Card>
       <div className="flex flex-wrap gap-3">
         <Input className="max-w-sm" placeholder="بحث بالاسم أو البريد أو HRID" value={search} onChange={(e) => setSearch(e.target.value)} />
         <Button onClick={() => setShowCreate(true)}>+ إنشاء حساب</Button>
+        {data && <ExcelButton onClick={() => downloadTable("users.xlsx", "Users", [{ header: "Name", value: (u: U) => u.full_name }, { header: "Email", value: (u: U) => u.email }, { header: "HRID", value: (u: U) => u.hrid }, { header: "Roles", value: (u: U) => u.roles.join(", ") }, { header: "Active", value: (u: U) => (u.is_active ? "yes" : "no") }], data)}>تنزيل Excel</ExcelButton>}
       </div>
       {loading && !data ? <Spinner /> : error || !data ? <ErrorBox message={error ?? "خطأ"} onRetry={reload} /> : (
         <DataTable head={["الاسم", "البريد", "HRID", "الأدوار", "الحالة", ""]}>

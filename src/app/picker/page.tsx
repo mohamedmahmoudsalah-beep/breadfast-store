@@ -24,7 +24,7 @@ function Dashboard() {
   const { data, error, loading, reload } = useLoad(async () => {
     const supabase = getSupabase();
     const [me, orders, queue] = await Promise.all([
-      supabase.from("pickers").select("status").maybeSingle(),
+      supabase.from("pickers").select("status").eq("user_id", session!.user.id).maybeSingle(),
       supabase.from("orders").select("id,order_no,status,created_at,slot_label,employee_name,hrid,order_items(qty_ordered,qty_prepared,qty_unavailable)")
         .in("status", ["assigned", "preparing"]).eq("picker_id", session!.user.id).order("created_at"),
       supabase.rpc("dashboard_stats"),
